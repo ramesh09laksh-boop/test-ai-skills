@@ -1,10 +1,40 @@
-# Test case report — `<ATF_RTP_WEB_...>`
+# Test case report — `<TestCaseName>`
 
 **Spec:** `<file>.xlsx`  **Test data:** `<file>.csv`  **Branch:** `<branch>`
 **Date:** `<YYYY-MM-DD>`  **Status:** Implemented / Blocked at gap gate / Partially implemented
 
 > Never write `Passed` or `Failed` without a run in this session. Otherwise: `Not executed`,
 > with the reason and the exact command.
+
+For a batch, write section 0 once and sections 1–8 per test case.
+
+## 0. Batch — inputs and pairing
+
+**Spec folder:** `<path>`  **Data folder:** `<path>`
+
+| Spec file | Data file | Pairing | Test case name | Exists in `Testcases\` | Gap gate |
+|---|---|---|---|---|---|
+| | `exact`/`candidate`/`unpaired` | | yes/no | clear / blocked (`<n>`) / skipped |
+
+Skipped files and why: `<lock files, already implemented, ...>`
+Unpaired specs: `<...>`   Unpaired data files: `<...>`
+Pairings awaiting confirmation: `<...>`
+
+### Project inspection
+
+| Check | Finding |
+|---|---|
+| `Framework\InitConfig.xaml` config path | `<path it actually reads>` — matches `Config\config.json`: yes/no |
+| `Config\config.json` exists | yes/no |
+| Config keys found (names only) | `<...>` |
+| Pages present / dispatcher cases | `<...>` |
+| Object Repository Screens / Elements | `<...>` |
+| `Placeholder` stubs | `<...>` |
+| Test data binding mechanism | exists (`<which>`) / none |
+| Broken `Reference`s | `<...>` |
+
+Snapshot items re-checked against `references/known-state-<date>.md`, and what changed:
+`<...>`
 
 ## 1. Summary
 
@@ -50,6 +80,7 @@ Broken references found: `<...>`
 
 Stubs implemented: `<...>`
 Existing files modified: `<...>` — approved by `<who>` on `<when>`, or "none".
+Input xlsx/CSV files modified: **none** (they are read-only).
 
 ## 6. CLI results
 

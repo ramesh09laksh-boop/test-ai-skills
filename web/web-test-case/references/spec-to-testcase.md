@@ -1,8 +1,15 @@
 # From spec to test case
 
-## The inputs
+## The inputs come from folders the user gives
 
-`ATF_RTP_WEB_<Name>.xlsx` — one manual test case exported from Jira, in German. First sheet,
+Two arguments: a **spec folder** holding the `.xlsx` manual steps and a **data folder**
+holding the `.csv` test data. They may be the same folder. If the user does not name them,
+**ask** — never search the disk for them. If the team settles on default folder names, the
+README documents them as the default and the user can still override them.
+
+**Treat the inputs as read-only.** Never modify, move or rename a user's xlsx or CSV.
+
+`<TestCaseName>.xlsx` — one manual test case exported from Jira, in German. First sheet,
 three columns: `Schritt` | `Aktion/Eingabe` | `zu prüfendes erwartetes Ergebnis`.
 **The file name without the extension is the test case name**, used verbatim for the XAML
 file, the `DisplayName` and the `fileInfoCollection` entry.
@@ -13,9 +20,53 @@ first row whose `Schritt` is not an integer. `parse_spec.py` stops there and ret
 dropped rows in `trailing_rows_ignored` so you can see what was discarded.
 
 `<Name>.csv` — `;`-separated, CRLF, a header row and one row per data variation. UTF-8 with
-a cp1252 fallback. The CSV name does not follow mechanically from the xlsx name
-(`BankzahlungAuslandischeIBANWahrungUSD.xlsx` ↔
-`Bankzahlung_auslaendische_IBAN_Waehrung_USD.csv`). Pair them explicitly.
+a cp1252 fallback.
+
+## Scanning and pairing
+
+```
+python scripts/parse_spec.py --spec-dir <spec folder> --data-dir <data folder> \
+       --testcases-dir <project>/Testcases --out-dir <scratch dir>
+```
+
+**Scan** — every `.xlsx` in the spec folder and every `.csv` in the data folder. Skipped and
+reported, not silently dropped:
+
+- temporary and lock files (`~$*.xlsx`),
+- anything already implemented in `Testcases\` — unless the user asks to regenerate it
+  (`--regenerate`).
+
+**Pair** — the CSV name does not follow mechanically from the xlsx name. Three outcomes, and
+nothing else:
+
+| Outcome | Rule |
+|---|---|
+| `exact` | identical base names → paired automatically |
+| `candidate` | the normalised names match → **shown for the user to confirm** |
+| `unpaired` | anything else, including several data files competing for one spec → reported |
+
+Normalisation for a candidate: case, umlaut vs `ae`/`oe`/`ue` (and vs the bare vowel, since
+spec names sometimes drop the umlaut altogether), `_` vs `-` vs `.` vs space, CamelCase and
+letter/digit boundaries, the connector words `und oder der die das mit ohne als im in`, and
+an optional leading `ATF_RTP_WEB_BANKING_`-style run of ALL-CAPS segments. Worked example:
+
+```
+ATF_RTP_WEB_BANKING_BankzahlungAuslandischeIBANWahrungUSD.xlsx
+  ↔ Bankzahlung_auslaendische_IBAN_Waehrung_USD.csv          → candidate
+```
+
+**Never pair by similarity scoring alone.** A candidate is a question, not a decision.
+
+**Output** — a batch table: spec file, data file, pairing status, test case name, whether it
+already exists in `Testcases\`, gap-gate status. Each test case then goes through the normal
+workflow (parse → gap gate → map → implement → validate → report). **One blocked test case
+does not stop the others.**
+
+The single-pair mode is unchanged and is what you use once a pairing is confirmed:
+
+```
+python scripts/parse_spec.py --xlsx <spec.xlsx> --csv <data.csv>
+```
 
 ## Step model
 
@@ -59,9 +110,10 @@ the parser checks names, not meanings.
 
 ## Scenario structure
 
-Mirror `Testcases\ATF_RTP_WEB_Login.xaml`: a root `Sequence` named after the test case
-containing `... Given`, `... When`, `... Then`. Put the Gherkin text in the test case
-annotation so the business reads the same steps the robot runs.
+Mirror the skeleton an existing test case in `Testcases\` uses — read one, do not assume it.
+The shape seen so far: a root `Sequence` named after the test case containing `... Given`,
+`... When`, `... Then`. Put the Gherkin text in the test case annotation so the business
+reads the same steps the robot runs.
 
 - **Given** — config and session come from the execution template; state the start page.
 - **When** — the action steps in spec order. Each logged with its step number via
@@ -109,8 +161,11 @@ secret-looking CSV columns in its `rows[]` output.
 
 ## Test data binding
 
-The project has **no** data-binding mechanism today: no data variations in
-`fileInfoCollection`, no CSV reader anywhere. Propose one approach —
+**Check what the project does today**, every run: look for data variations in
+`designOptions.fileInfoCollection` and for any CSV/Excel reader in the project. If a
+mechanism exists, use it — do not add a second one.
+
+If none exists, propose one approach —
 
 - a data-driven test case with the CSV attached as a data variation, or
 - reading the CSV in `Given` and iterating rows —

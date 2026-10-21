@@ -1,28 +1,44 @@
 #!/usr/bin/env python3
-"""Parse a manual web test description (.xlsx) and its test data (.csv) into JSON.
+"""Parse manual web test descriptions (.xlsx) and their test data (.csv) into JSON.
 
-Input  : ATF_RTP_WEB_<Name>.xlsx  (Jira export, German, columns
+Input  : <TestCaseName>.xlsx  (Jira export, German, columns
          Schritt / Aktion/Eingabe / zu pruefendes erwartetes Ergebnis)
-         <Name>.csv               (';'-separated, header row + 1..n data rows)
+         <Name>.csv           (';'-separated, header row + 1..n data rows)
 Output : JSON on stdout -- step model, placeholders, CSV columns, rows and a
          placeholder -> column mapping with a status per placeholder.
 
-The mapping is deliberately conservative. Only an exact match of the
-normalised name tokens produces `mapped`. Everything else that merely looks
-similar is reported as `candidate` and must be confirmed by a human. The
-script never guesses a value and never emits a value for a secret.
+Two modes:
+
+  single pair  --xlsx <spec.xlsx> [--csv <data.csv>]
+  batch        --spec-dir <dir> [--data-dir <dir>]
+
+Batch mode scans the folders the user named, pairs spec and data files, and
+emits a pairing table plus one analysis per pair. It never searches the disk
+on its own: the folders are arguments.
+
+Everything here is deliberately conservative. Only an exact match produces an
+automatic result -- an exact normalised token set for a placeholder -> column
+mapping, an exact base name for a spec <-> data pairing. Anything that merely
+looks similar comes back as `candidate` and has to be confirmed by a human.
+The script never guesses a value, never emits a value for a secret, and never
+writes to the files it reads.
 
 No network access. Requires openpyxl.
 
 Usage:
     python parse_spec.py --xlsx <spec.xlsx> --csv <data.csv> [--indent 2]
-    python parse_spec.py --xlsx <spec.xlsx>            # no test data yet
+    python parse_spec.py --xlsx <spec.xlsx>             # no test data yet
+    python parse_spec.py --spec-dir <dir> --data-dir <dir> \
+                         [--testcases-dir <project>/Testcases] \
+                         [--out-dir <dir>] [--regenerate]
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import fnmatch
+import glob
 import json
 import os
 import re
@@ -106,6 +122,122 @@ def edit_distance(a: str, b: str) -> int:
 def tokens_similar(a: str, b: str) -> bool:
     """Exact, or a single-character typo in a reasonably long token."""
     return a == b or (min(len(a), len(b)) >= 5 and edit_distance(a, b) <= 1)
+
+
+# --------------------------------------------------------------------------
+# file-name pairing (batch mode)
+# --------------------------------------------------------------------------
+
+# A leading run of two or more ALL-CAPS underscore segments, as in
+# ``ATF_RTP_WEB_BANKING_``. The run stops at the first segment that is not
+# all-caps, so ``ATF_RTP_WEB_BANKING_QRRechnung_mit_IBAN_ohne_Referenz``
+# keeps ``QRRechnung_mit_IBAN_ohne_Referenz``.
+NAME_PREFIX_RE = re.compile(r"^(?:[A-Z][A-Z0-9]*_){2,}")
+
+LOCK_FILE_GLOBS = ("~$*",)
+
+
+def strip_name_prefix(stem: str) -> str:
+    return NAME_PREFIX_RE.sub("", stem) or stem
+
+
+def pair_key(stem: str) -> str:
+    """Normalised key used to offer a spec <-> data file pairing.
+
+    On top of :func:`norm` (case, umlaut -> ae/oe/ue, separators, CamelCase,
+    connector words) the digraphs are collapsed to the bare vowel, because the
+    spec names drop the umlaut entirely where the CSV names transliterate it:
+    ``AuslandischeIBANWahrungUSD`` vs ``auslaendische_IBAN_Waehrung_USD``.
+
+    This is looser than :func:`norm` on purpose. A match on this key is only
+    ever reported as a `candidate` for a human to confirm, never auto-paired.
+    """
+    key = norm(strip_name_prefix(stem))
+    for digraph, vowel in (("ae", "a"), ("oe", "o"), ("ue", "u")):
+        key = key.replace(digraph, vowel)
+    return key
+
+
+def is_lock_file(filename: str) -> bool:
+    return any(fnmatch.fnmatch(filename, pattern) for pattern in LOCK_FILE_GLOBS)
+
+
+def list_inputs(directory: str, extension: str) -> tuple[list[str], list[dict]]:
+    """Every ``*<extension>`` in *directory*, with lock files reported, not hidden."""
+    if not os.path.isdir(directory):
+        raise ValueError(f"{directory}: not a directory")
+
+    kept: list[str] = []
+    skipped: list[dict] = []
+    for path in sorted(glob.glob(os.path.join(directory, "*" + extension))):
+        filename = os.path.basename(path)
+        if is_lock_file(filename):
+            skipped.append({"file": filename, "reason": "temporary/lock file"})
+            continue
+        kept.append(path)
+    return kept, skipped
+
+
+def implemented_test_cases(testcases_dir: str | None) -> set[str]:
+    """Test case names that already have a ``<name>.xaml`` in *testcases_dir*."""
+    if not testcases_dir or not os.path.isdir(testcases_dir):
+        return set()
+    return {os.path.splitext(f)[0]
+            for f in os.listdir(testcases_dir) if f.lower().endswith(".xaml")}
+
+
+def pair_inputs(spec_paths: list[str], data_paths: list[str]) -> list[dict]:
+    """Pair spec files with data files by name. Three outcomes only.
+
+    ``exact``     identical base names -- paired automatically.
+    ``candidate`` the normalised keys match -- shown for confirmation.
+    ``unpaired``  no name evidence, or several data files compete for one spec.
+
+    There is no similarity score and no fallback. A spec with no usable
+    pairing stays unpaired and is reported.
+    """
+    data_by_stem = {os.path.splitext(os.path.basename(p))[0]: p for p in data_paths}
+    data_by_key: dict[str, list[str]] = {}
+    for stem, path in data_by_stem.items():
+        data_by_key.setdefault(pair_key(stem), []).append(path)
+
+    pairs = []
+    for spec_path in spec_paths:
+        stem = os.path.splitext(os.path.basename(spec_path))[0]
+        item = {
+            "test_case_name": stem,
+            "spec": os.path.basename(spec_path),
+            "spec_path": spec_path,
+            "data": None,
+            "data_path": None,
+            "pairing": "unpaired",
+            "pair_key": pair_key(stem),
+            "data_candidates": [],
+            "note": "",
+        }
+
+        if stem in data_by_stem:
+            item["data_path"] = data_by_stem[stem]
+            item["data"] = os.path.basename(item["data_path"])
+            item["pairing"] = "exact"
+            item["note"] = "Base names are identical."
+        else:
+            matches = data_by_key.get(item["pair_key"], [])
+            item["data_candidates"] = [os.path.basename(p) for p in matches]
+            if len(matches) == 1:
+                item["data_path"] = matches[0]
+                item["data"] = os.path.basename(matches[0])
+                item["pairing"] = "candidate"
+                item["note"] = ("Normalised names match (case, umlauts, separators, "
+                                "name prefix). Confirm before using it.")
+            elif len(matches) > 1:
+                item["pairing"] = "unpaired"
+                item["note"] = ("Several data files normalise to the same name "
+                                f"({', '.join(item['data_candidates'])}). Ask which one.")
+            else:
+                item["note"] = "No data file in the data folder matches this spec by name."
+        pairs.append(item)
+    return pairs
 
 
 # --------------------------------------------------------------------------
@@ -411,6 +543,7 @@ def analyse(xlsx_path: str, csv_path: str | None) -> dict:
     blocking = [m for m in mapping if m["needs_confirmation"]]
 
     return {
+        "mode": "single",
         "test_case_name": os.path.splitext(os.path.basename(xlsx_path))[0],
         "source": {
             "xlsx": os.path.basename(xlsx_path),
@@ -434,14 +567,135 @@ def analyse(xlsx_path: str, csv_path: str | None) -> dict:
     }
 
 
+def analyse_batch(spec_dir: str, data_dir: str | None = None,
+                  testcases_dir: str | None = None,
+                  out_dir: str | None = None,
+                  regenerate: bool = False,
+                  indent: int = 2) -> dict:
+    """Scan a spec folder and a data folder, pair them, analyse each pair.
+
+    The two folders may be the same folder. One unusable pair never stops the
+    others: a pair that cannot be parsed carries its ``error`` and the rest
+    are still analysed.
+    """
+    data_dir = data_dir or spec_dir
+
+    spec_paths, skipped = list_inputs(spec_dir, ".xlsx")
+    data_paths, skipped_data = list_inputs(data_dir, ".csv")
+    skipped += skipped_data
+
+    already = implemented_test_cases(testcases_dir)
+    pairs = pair_inputs(spec_paths, data_paths)
+
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    paired_data = {p["data"] for p in pairs if p["data"]}
+
+    for item in pairs:
+        item["already_implemented"] = item["test_case_name"] in already
+        item["analysed"] = False
+        item["error"] = None
+        item["gap_gate"] = None
+        item["result_file"] = None
+        item["analysis"] = None
+
+        if item["already_implemented"] and not regenerate:
+            item["note"] = ((item["note"] + " ") if item["note"] else "") + (
+                f"Testcases\\{item['test_case_name']}.xaml already exists; "
+                "skipped. Pass --regenerate to analyse it anyway.")
+            continue
+
+        try:
+            result = analyse(item["spec_path"], item["data_path"])
+        except Exception as exc:  # a broken spec must not stop the batch
+            item["error"] = f"{type(exc).__name__}: {exc}"
+            continue
+
+        item["analysed"] = True
+        item["gap_gate"] = result["gap_gate"]
+        if out_dir:
+            path = os.path.join(out_dir, item["test_case_name"] + ".json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=indent, ensure_ascii=False)
+            item["result_file"] = path
+        else:
+            item["analysis"] = result
+
+    table = [{
+        "spec": item["spec"],
+        "data": item["data"],
+        "pairing": item["pairing"],
+        "test_case_name": item["test_case_name"],
+        "exists_in_testcases": item["already_implemented"],
+        "gap_gate": ("clear" if item["gap_gate"] and item["gap_gate"]["clear"]
+                     else "blocked" if item["gap_gate"]
+                     else "error" if item["error"]
+                     else "not analysed"),
+        "blocking_placeholders": (len(item["gap_gate"]["blocking_placeholders"])
+                                  if item["gap_gate"] else None),
+    } for item in pairs]
+
+    return {
+        "mode": "batch",
+        "spec_dir": os.path.abspath(spec_dir),
+        "data_dir": os.path.abspath(data_dir),
+        "testcases_dir": os.path.abspath(testcases_dir) if testcases_dir else None,
+        "spec_files": [os.path.basename(p) for p in spec_paths],
+        "data_files": [os.path.basename(p) for p in data_paths],
+        "skipped_files": skipped,
+        "table": table,
+        "pairs": pairs,
+        "unpaired_specs": [i["spec"] for i in pairs if i["pairing"] == "unpaired"],
+        "unpaired_data_files": [os.path.basename(p) for p in data_paths
+                                if os.path.basename(p) not in paired_data],
+        "counts": {
+            "specs": len(spec_paths),
+            "data_files": len(data_paths),
+            "exact": sum(1 for i in pairs if i["pairing"] == "exact"),
+            "candidate": sum(1 for i in pairs if i["pairing"] == "candidate"),
+            "unpaired": sum(1 for i in pairs if i["pairing"] == "unpaired"),
+            "already_implemented": sum(1 for i in pairs if i["already_implemented"]),
+            "gap_gate_clear": sum(1 for i in pairs
+                                  if i["gap_gate"] and i["gap_gate"]["clear"]),
+            "gap_gate_blocked": sum(1 for i in pairs
+                                    if i["gap_gate"] and not i["gap_gate"]["clear"]),
+        },
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--xlsx", required=True, help="path to ATF_RTP_WEB_<Name>.xlsx")
-    parser.add_argument("--csv", help="path to the paired test-data .csv")
+    parser.add_argument("--xlsx", help="single-pair mode: path to <TestCaseName>.xlsx")
+    parser.add_argument("--csv", help="single-pair mode: the paired test-data .csv")
+    parser.add_argument("--spec-dir", help="batch mode: folder holding the .xlsx specs")
+    parser.add_argument("--data-dir",
+                        help="batch mode: folder holding the .csv test data "
+                             "(defaults to --spec-dir)")
+    parser.add_argument("--testcases-dir",
+                        help="batch mode: the project's Testcases folder, to flag "
+                             "test cases that already exist")
+    parser.add_argument("--out-dir",
+                        help="batch mode: write one <TestCaseName>.json per pair here "
+                             "instead of inlining the analyses")
+    parser.add_argument("--regenerate", action="store_true",
+                        help="batch mode: analyse specs that already exist in Testcases")
     parser.add_argument("--indent", type=int, default=2)
     args = parser.parse_args(argv)
 
-    result = analyse(args.xlsx, args.csv)
+    if bool(args.xlsx) == bool(args.spec_dir):
+        parser.error("give either --xlsx (single pair) or --spec-dir (batch), not both")
+    if args.xlsx:
+        for name in ("spec_dir", "data_dir", "testcases_dir", "out_dir"):
+            if getattr(args, name):
+                parser.error(f"--{name.replace('_', '-')} belongs to batch mode")
+        result = analyse(args.xlsx, args.csv)
+    else:
+        if args.csv:
+            parser.error("--csv belongs to single-pair mode; use --data-dir")
+        result = analyse_batch(args.spec_dir, args.data_dir, args.testcases_dir,
+                               args.out_dir, args.regenerate, args.indent)
+
     sys.stdout.write(json.dumps(result, indent=args.indent, ensure_ascii=False) + "\n")
     return 0
 
