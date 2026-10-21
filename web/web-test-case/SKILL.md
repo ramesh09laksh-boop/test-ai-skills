@@ -11,6 +11,7 @@ activities, selectors, Object Repository IDs or test data.
 Read `references/framework-conventions.md` before touching any XAML. The other references
 load on demand: `spec-to-testcase.md` (inputs, pairing, step model), `object-repository.md`
 (targets), `uipath-cli.md` (analyze/pack/run), `examples.md` (two worked samples),
+`workflows/` (the three task-specific workflows routed below),
 `known-state-2026-10-21.md` (a **dated snapshot** of one past run — re-check it, never assume
 it).
 
@@ -62,6 +63,13 @@ The project keeps changing: new pages, actions, utilities, templates and config 
 8. **The user's input files are read-only.** Never modify, move or rename an xlsx or CSV.
 
 ## Workflow
+
+The steps below implement a test case from a spec. **Three other tasks have their own
+workflow — load the file and follow it instead:**
+
+- Elements were captured in Studio and need binding → `references/workflows/bind-captured-elements.md`
+- A test case failed and needs classifying → `references/workflows/failure-triage.md`
+- A spec changed and its test case needs updating → `references/workflows/spec-change-update.md`
 
 Steps 1–5 are read-only. **Check-only run:** when the user asks to check readiness without
 changing anything, do steps 1–5 and stop, then report the project inspection (including the

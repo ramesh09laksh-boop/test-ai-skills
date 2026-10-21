@@ -112,20 +112,24 @@ Show the planned file changes and what needs capturing in Studio. Wait for my ap
 
 ## How much of this the skill actually defines
 
-Honest mapping of each prompt onto `SKILL.md`, so you know when you are following a defined
-workflow and when you are asking the agent to improvise.
+Mapping of each prompt onto the skill, so you know which file governs the run.
 
-| Prompt | Backed by a defined workflow? |
+| Prompt | Defined where |
 |---|---|
-| 1. Check-only | **Yes** — "Check-only run" in `SKILL.md`, which stops after the gap gate |
-| 2. Implement a folder | **Yes** — the main workflow, steps 1–13 |
-| 3. Implement one | **Yes** — same workflow with one pair; name the two files directly |
-| 4. Continue after the gap gate | **Yes** — step 5 is the stop, this is the resume |
-| 5. Bind captured elements | **Partly** — the capture list and the reference check are defined (`object-repository.md`); re-binding after a Studio capture is not yet its own workflow |
-| 6. Validate only | **Yes** — step 12; note the skill's baseline is *the unmodified project*, so ask for the delta against `main` explicitly, as this prompt does |
-| 7. Classify a failure | **No defined workflow.** Rules 1 and 3 still hold (no invented results, propose don't apply), but the triage itself is improvised |
-| 8. Spec changed → update | **No defined workflow.** `--regenerate` re-analyses an existing test case, but there is no step-by-step diff of a spec against existing XAML |
+| 1. Check-only | `SKILL.md` — "Check-only run": steps 1–5, stops after the gap gate, writes nothing |
+| 2. Implement a folder | `SKILL.md` — the main workflow, steps 1–13 |
+| 3. Implement one | `SKILL.md` — same workflow with one pair; name the two files directly |
+| 4. Continue after the gap gate | `SKILL.md` — step 5 is the stop, this is the resume |
+| 5. Bind captured elements | `references/workflows/bind-captured-elements.md` |
+| 6. Validate only | `SKILL.md` — step 12 and `references/uipath-cli.md`; the skill's baseline is *the unmodified project*, so ask for the delta against `main` explicitly, as this prompt does |
+| 7. Classify a failure | `references/workflows/failure-triage.md` |
+| 8. Spec changed → update | `references/workflows/spec-change-update.md` |
+| 9. Propose a framework fix | `SKILL.md` — critical rule 3: propose, never apply, wait for approval |
 
-Prompts 7 and 8 are reasonable asks and the critical rules still apply to them — they are
-simply not yet written down as workflows. If they turn out to be routine, add them to
-`SKILL.md` so every run does them the same way.
+All nine are now backed by a written workflow. Each of the three in
+`references/workflows/` states its own Inputs, Steps, **Done when** and **Never**, and each
+one stops for confirmation before it changes a file.
+
+> `failure-triage.md` and `spec-change-update.md` were drafted from prompts 7 and 8 plus the
+> skill's critical rules, because the detailed spec for them did not arrive. Review them
+> against how you actually want those two tasks run.
