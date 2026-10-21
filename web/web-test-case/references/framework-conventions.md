@@ -1,150 +1,165 @@
 # web-test-framework conventions
 
-Every statement below was verified against the `feature/Initial_Work` branch and cites the
-file it came from. Re-verify against the branch you are working on before relying on it.
+**Patterns, not an inventory.** This file describes how the project is built and cites the
+file each pattern was read from. It does **not** list which pages, elements, stubs or config
+keys exist — that changes every time Studio or the team touches the project, so it belongs in
+the run's own inspection output. A dated snapshot of one past run is in
+`known-state-2026-10-21.md`, clearly marked as a snapshot; re-check every item in it.
 
-## Project
+Read the project on **every** run. Follow whatever structure you find.
 
-`project.json`:
+## Fixed conventions
 
-| Field | Value |
+These three do not change with the project and may be relied on:
+
+| Item | Convention |
 |---|---|
-| `name` | `web-test-framework` |
-| `designOptions.outputType` | `Tests` |
-| `targetFramework` | `Windows` |
-| `expressionLanguage` | `VisualBasic` |
-| `designOptions.modernBehavior` | `true` |
-| `studioVersion` | `21.4.4.0` |
-| `schemaVersion` | `4.0` |
+| Config | `Config\config.json`, relative to the project root. Read it through `Framework\InitConfig.xaml`, never directly in a test case. Look up keys **by name in the file**; do not assume a key exists |
+| Test cases | `Testcases\<TestCaseName>.xaml`, where `<TestCaseName>` is the spec file name without its extension, verbatim. Register each one in `project.json` the same way the existing entries are registered |
+| Structure source | The project as it is in the repo on this run |
 
-Pinned dependencies — use activities from these and nothing else:
+## Preserve the structure exactly as generated
 
+Studio generated this layout; the team extended it. Keep both.
+
+- Keep the folder layout, the file names, the argument names, the `project.json` layout,
+  `.objects\` and `.templates\`.
+- Add new files **where the existing pattern puts them** — a new page goes in
+  `Applications\WebApp\Pages\<Page>\`, a new test case in `Testcases\`.
+- **Never** reorganise, rename, reformat or regenerate an existing file. Not to tidy it up,
+  not to make your own work easier. Propose, and wait.
+- Do not touch project settings, dependency versions, `studioVersion` or `editingStatus`.
+
+## Reuse what the framework provides
+
+| Need | Use |
+|---|---|
+| Configuration | `Framework\InitConfig.xaml` |
+| Browser session | `Framework\EnsureSession.xaml` |
+| Credentials / secrets | `Utilities\GetFrontendCredentials.xaml` |
+| Logging | `Utilities\LogMessage.xaml` |
+| UI interaction | the `Applications\WebApp\Actions\*` dispatchers and the `Applications\WebApp\Pages\<Page>\*` element workflows |
+| Validation | `Applications\WebApp\Validation\*` |
+
+If the framework already offers a way to do something, **use it**. Do not write a second
+version alongside it — no inline config read, no inline selector, no local credential
+lookup, no `Delay` instead of a state check. Add only the pieces the framework does not have
+yet (a page folder, an element case, a dispatcher case, a stub a test actually needs), and
+build them the same way the existing ones are built.
+
+Activities come only from the packages pinned in the project's own `project.json`. If you
+are unsure an activity exists, look it up (`uip rpa-legacy find-activities`).
+
+## Inspecting the project (do this first, every run)
+
+Read, in this order, and write what you found into the report:
+
+1. `project.json` — `designOptions.outputType`, `targetFramework`, `expressionLanguage`,
+   the pinned `dependencies`, and `designOptions.fileInfoCollection` (the registration
+   pattern and the existing entries).
+2. `Config\config.json` — does it exist, and which **key names** does it hold.
+3. `Framework\InitConfig.xaml` — which path does it actually read (see below).
+4. `.templates\` — which templates exist and what each one runs, in order.
+5. `.objects\` — Library / App / AppVersion / Screens / Elements actually present.
+6. `Applications\WebApp\{Actions,Navigation,Pages,Validation}` — which workflows exist,
+   which `in_Page` / `in_Element` cases each dispatcher has, and which files are still
+   `Placeholder` stubs.
+7. `Framework\`, `Utilities\`, `Testcases\`.
+
+### Config path check — run it every time
+
+`Framework\InitConfig.xaml` reads the config file with a Read Text File activity whose path
+is a literal in the XAML. Check which path that is:
+
+```powershell
+Select-String -Path "<project>\Framework\InitConfig.xaml" -Pattern 'config\.json'
 ```
-UiPath.Testing.Activities      [23.10.1]
-UiPath.UIAutomation.Activities [24.10.17]
-UiPath.System.Activities       [24.10.8]
-UiPath.Excel.Activities        [2.22.3]
-GlobaleWorkflow                [26.8.6.21061]   internal; provides Swisscom.PHI / Get_PHI_Vault
-```
 
-Known inconsistencies — **report, do not change**:
+- It reads `Config\config.json`, or the project-relative equivalent → **proceed**.
+- It reads a UNC share or any other absolute path → **report the mismatch and propose the
+  change.** Do not edit `InitConfig.xaml` without approval.
+- `Config\config.json` does not exist → **stop and report.**
 
-- `studioVersion` `21.4.4.0` against 24.10 activity packages, while the Object Repository
-  metadata was written by `UiPath.Platform 24.11.1.0` (`.objects\**\.metadata`).
-- `description` and `README.md` both say "Library-Projekt" although `outputType` is `Tests`.
-- `coverageMergeWorkflowPath: "CoverageMerge466635.xaml"` points at a file that is not in
-  the repo.
-- `projectProfile: "Developement"` (typo, Studio's own).
+Never print a config value that could be secret. Listing key names is fine.
 
-`.gitignore` excludes `**/.settings`, `**/.local`, `**/.screenshots`,
-`**/.ExceptionScreenshots`, `**/.images`. A fresh clone therefore has **no Object Repository
-screenshots** — a missing `imageRef` image is not an error.
+## Page-object dispatch pattern
 
-## Folder structure
+Two levels of `Switch`. Copy the shape from whichever page already exists in the project you
+are in — read it, do not copy it from here.
 
-```
-Testcases\                 ATF_RTP_WEB_<Name>.xaml
-.templates\                TestCaseTemplate, ExecutionTemplate, LoginExecutionTemplate
-.objects\                  Object Repository (see object-repository.md)
-Applications\WebApp\
-  Actions\                 ClickElement, SetText, SelectDropdown, SetCheckbox, SetRadioButton
-  Navigation\              OpenBrowser, NavigateToPage, RefreshPage, SwitchTab
-  Pages\<Page>\            Click_/SetText_/Validate_<Page>_Element.xaml, <Page>Steps.xaml
-  Validation\              ValidateElement, ValidateText, ValidateTable, WaitForElement
-Framework\                 InitConfig, EnsureSession, HandleException
-Utilities\                 GetFrontendCredentials, LogMessage, RetryAction, TakeScreenshot,
-                           WaitForLoader
-Main.xaml                  comment only; exists to avoid compilation complaints
-```
+1. **Dispatcher**, e.g. `Applications\WebApp\Actions\ClickElement.xaml` — arguments
+   `in_Page`, `in_Element`, `io_Browser`; a `Switch` on `[in_Page]` with one
+   `InvokeWorkflowFile` per page.
+2. **Element workflow**, e.g. `Applications\WebApp\Pages\<Page>\Click_<Page>_Element.xaml` —
+   arguments `in_Element`, `io_Browser`; an `NApplicationCard` (`AttachMode="ByInstance"`,
+   `OpenMode="Never"`, `InUiElement="[io_Browser]"`) wrapping a `Switch` on `[in_Element]`,
+   one modern activity per case, each with an Object Repository `Reference` on its target.
 
-## Page-object dispatch
+A validation dispatcher follows the same pattern plus step counting: it increments
+`io_StepCounter`, invokes `Utilities\LogMessage.xaml`, then switches on `[in_Page]`
+(pattern read from `Applications\WebApp\Validation\ValidateElement.xaml`).
 
-Two levels of `Switch`. Copy this shape exactly for a new page.
-
-1. `Applications\WebApp\Actions\ClickElement.xaml` — args `in_Page`, `in_Element`,
-   `io_Browser`. A `Switch` on `[in_Page]` with one `InvokeWorkflowFile` per page
-   (currently only the `LoginPage` case).
-2. `Applications\WebApp\Pages\LoginPage\Click_LoginPage_Element.xaml` — arg `in_Element`,
-   `io_Browser`. An `NApplicationCard` (`AttachMode="ByInstance"`, `OpenMode="Never"`,
-   `InUiElement="[io_Browser]"`) wrapping a `Switch` on `[in_Element]`, one modern activity
-   per case with an Object Repository `Reference` on its target.
-
-`Applications\WebApp\Validation\ValidateElement.xaml` is the same pattern plus step
-counting: it increments `io_StepCounter`, invokes `Utilities\LogMessage.xaml`, then
-switches on `[in_Page]` to `Validate_<Page>_Element.xaml`.
-
-`Validate_LoginPage_Element.xaml` shows the per-element validation shape: `NCheckState`
+Per-element validation shape (read from
+`Applications\WebApp\Pages\LoginPage\Validate_LoginPage_Element.xaml`): one `NCheckState`
 ("Check App State") per element writing a Boolean, then
-`If [not isLoginPageElementVisible] → Throw new BusinessRuleException(...)`.
+`If [not <...>IsVisible] → Throw new BusinessRuleException(...)`.
+
+**Adding a page:** create `Applications\WebApp\Pages\<Page>\` with the
+`Click_`/`SetText_`/`Validate_<Page>_Element.xaml` files the test needs, following the
+existing page's files exactly, and add the `in_Page` case to every dispatcher that needs it.
+**Adding an element:** a Switch case in the element workflow plus an Object Repository
+target — see `object-repository.md`.
 
 ## Arguments and logging
 
-- Prefixes `in_`, `out_`, `io_`. **Exception to be aware of, not copied:**
-  `Utilities\GetFrontendCredentials.xaml` declares `in_Username` and `in_Password` as
-  `OutArgument`. Call it with that signature; do not imitate the naming.
-- `Utilities\LogMessage.xaml` — `in_Message`, `in_LogLevel`, `in_StepNumber`. It formats
-  `[timestamp] [Step n] [level] message` and always logs at `Info` regardless of
-  `in_LogLevel`; its body still ends in a `Placeholder` comment.
+- Prefixes `in_`, `out_`, `io_`. Where an existing file breaks that (an `OutArgument` named
+  `in_*`), call it with the signature it has and do not imitate the naming — note it in the
+  report.
+- `Utilities\LogMessage.xaml` takes `in_Message`, `in_LogLevel`, `in_StepNumber` and formats
+  `[timestamp] [Step n] [level] message`. Check its current behaviour before relying on the
+  level being honoured.
 - `io_StepCounter` (`Int32`) is threaded through the test case and incremented by the
-  workflow that performs a step (`OpenBrowser.xaml`, `ValidateElement.xaml`).
+  workflow that performs a step.
 
-## Config
+## Config, session and credentials
 
 `Framework\InitConfig.xaml` — `in_Mandant`, `in_Environment` → `out_Config` (`JObject`).
-Reads a `config.json` from a network share (path hard-coded in the Read Text File activity),
-deserialises it, and walks `mandant[] → name` then `environments[] → name`, assigning the
-matching environment entry to `out_Config`. If neither is found it throws a
-`BusinessRuleException`.
-
-A comment in the file states Mandant and Environment are hard-coded as argument defaults
-(`VAB` / `TST`) and belong in Orchestrator job arguments.
-
-Config keys used in the project: `homepage` (`Framework\EnsureSession.xaml`), `Kontoname`
-(`Utilities\GetFrontendCredentials.xaml`), `url` (`Testcases\ATF_RTP_WEB_Login.xaml`).
-Read key names from the code; do not invent new ones without asking.
-
-## Session and credentials
+It reads the config file, deserialises it, and walks `mandant[] → name` then
+`environments[] → name`, assigning the matching environment entry to `out_Config`; if neither
+is found it throws a `BusinessRuleException`. Mandant and Environment are hard-coded as
+argument defaults and, per a comment in the file, belong in Orchestrator job arguments.
 
 `Framework\EnsureSession.xaml` — `in_Config` → `io_Browser`. An `NApplicationCard` with
-`OpenMode="Never"` targeting the `HomePage` repository screen, i.e. it **attaches to an
-already-running browser**; it never opens one. On failure it logs "User not logged in" and
-throws `new Exception("Unable to ensure session")`.
+`OpenMode="Never"`, i.e. it **attaches to an already-running browser**; it never opens one.
 
-`Utilities\GetFrontendCredentials.xaml` — a single `Get_PHI_Vault` activity with
-`ObjectName="[in_Config("Kontoname").ToString]"`. This is the only sanctioned source of
-credentials.
+`Utilities\GetFrontendCredentials.xaml` — a `Get_PHI_Vault` activity keyed on a config value.
+This is the only sanctioned source of credentials.
+
+Config keys: read the names out of the code and out of `Config\config.json`. Do not invent a
+key, and do not assume a key seen in an earlier run still exists.
 
 ## Templates
 
-`.templates\TestCaseTemplate.xaml` is an **empty Sequence**. The Given/When/Then skeleton
-comes from `Testcases\ATF_RTP_WEB_Login.xaml`, not from the template: a root `Sequence` with
-three child sequences named `... Given`, `... When`, `... Then`. Use the Login test's
-skeleton and propose updating the template.
+Read `.templates\` on your run: which templates exist, what each runs and in what order, and
+which arguments each declares. Then pick the one the test case needs and register it in
+`fileInfoCollection`.
 
-`.templates\ExecutionTemplate.xaml` — args `in_Config` (`JObject`), `io_Browser`
-(`UiElement`). Runs, in order:
+Two consequences that have held so far and are worth re-checking:
 
-1. `Framework\InitConfig.xaml` inside a `TryCatch` catching **only** `BusinessRuleException`
-   and only invoking `HandleException`.
-2. `Framework\EnsureSession.xaml` — displayed as "CheckSession".
-3. the test case `Placeholder`.
+- A template whose session step only **attaches** to a browser needs one that is already open
+  and logged in — normally because a login test ran earlier in the same robot session. That
+  is an ordering dependency between test cases; raise it before designing a new test case.
+- A template that catches the config failure without rethrowing continues with a null config,
+  and the real failure surfaces later as an unrelated `NullReferenceException`.
 
-`.templates\LoginExecutionTemplate.xaml` — args `in_Config`, `in_Username`, `in_Password`
-(`SecureString`). Same `InitConfig` TryCatch, then `GetFrontendCredentials`, then the
-placeholder. It does not open a browser; `ATF_RTP_WEB_Login` does that itself.
-
-**Consequence:** a test case on `ExecutionTemplate` needs a browser that is already open and
-logged in, normally because `ATF_RTP_WEB_Login` ran earlier in the same robot session. That
-is an ordering dependency between test cases — raise it before designing a new test case.
-
-**Consequence:** `InitConfig` is invoked with `in_Mandant` and `in_Environment` unset, so the
-defaults apply. If the entry is not found it throws `BusinessRuleException`, the template
-logs it and continues with a **null config**, and the real failure surfaces later as an
-unrelated `NullReferenceException` (e.g. at `in_Config("Kontoname")`).
+If `.templates\TestCaseTemplate.xaml` is empty, take the Given/When/Then skeleton from an
+existing test case instead and **propose** updating the template.
 
 ## Test case registration
 
-`designOptions.fileInfoCollection` holds one entry per test case and per template:
+`designOptions.fileInfoCollection` in `project.json` holds one entry per test case and per
+template. Copy the shape of the **existing entries in the file you are editing**; at the time
+of the last snapshot a test case entry looked like:
 
 ```json
 {
@@ -154,66 +169,25 @@ unrelated `NullReferenceException` (e.g. at `in_Config("Kontoname")`).
   "testCaseType": "TestCase",
   "executionTemplateType": "Local",
   "executionTemplateInvokeIsolated": false,
-  "fileName": "Testcases\\ATF_RTP_WEB_<Name>.xaml"
+  "fileName": "Testcases\\<TestCaseName>.xaml"
 }
 ```
 
 Templates are registered as `{"templateType": "TestCase"|"ExecutionTemplate", "fileName": ...}`.
-`Main.xaml` is also registered as a test case (`testCaseId` set, no execution template)
-although its body is only a comment.
+Add your entry; change nothing else in the file, and keep its existing formatting.
 
-`ATF_RTP_WEB_Login.xaml` uses `LoginExecutionTemplate`; `ATF_RTP_WEB_Test1.xaml` uses
-`ExecutionTemplate` and is an empty Sequence.
+## Rules for your own test cases
 
-## Placeholder stubs
+1. **Rethrow after the exception handler, or do not catch in `When`/`Then` at all.** A
+   catch-and-log turns a failing step into a passing test.
+2. **Every "erwartetes Ergebnis" gets a Verify activity.** `Then` is never empty, and
+   intermediate expected results are asserted where they occur.
+3. **Synchronise on state** — Check App State or an activity's own wait options. Never a
+   fixed `Delay`.
+4. **German domain terms stay as written in the spec** in display names, log messages and
+   assertion messages. Code identifiers follow the existing naming.
+5. **No secrets** in a CSV, a config file, a XAML literal, a log line or a report.
 
-These files contain only a `Comment` with the text `Placeholder` and, except where noted,
-**no arguments at all**:
-
-```
-Applications\WebApp\Actions\SetText.xaml           SelectDropdown.xaml
-Applications\WebApp\Actions\SetCheckbox.xaml       SetRadioButton.xaml
-Applications\WebApp\Navigation\NavigateToPage.xaml RefreshPage.xaml  SwitchTab.xaml
-Applications\WebApp\Validation\ValidateText.xaml   ValidateTable.xaml  WaitForElement.xaml
-Applications\WebApp\Pages\LoginPage\SetText_LoginPage_Element.xaml   Logout.xaml
-Utilities\RetryAction.xaml  TakeScreenshot.xaml  WaitForLoader.xaml
-```
-
-Partial stubs:
-
-- `Applications\WebApp\Navigation\OpenBrowser.xaml` — real arguments and a real
-  `NApplicationCard` (`OpenMode="Always"`, `WindowResize="Maximize"`) on the `LoginPage`
-  repository screen, but the card's `Do` body is only a `Placeholder` comment.
-- `Framework\HandleException.xaml` — logs the **literal string** `"Some error happened"` at
-  `Error`. It never logs `in_Exception` and never rethrows.
-- `Utilities\LogMessage.xaml` — works, but ends in a `Placeholder` comment.
-- `Testcases\ATF_RTP_WEB_Test1.xaml` — empty Sequence.
-
-Implement a stub only when the test case you are building needs it, keep the change minimal,
-and list it in the report.
-
-## Defects you must not copy
-
-1. **Exceptions are swallowed.** In `ATF_RTP_WEB_Login.xaml` the whole `When` body sits in a
-   `TryCatch` whose `Catch(System.Exception)` only invokes `HandleException`. A failing step
-   therefore produces a **passing** test. Nothing in the project rethrows after
-   `HandleException`.
-2. **No assertions.** `ATF_RTP_WEB_Login.xaml`'s `... Given` and `... Then` sequences are
-   both empty.
-3. **Dead invocations.** The last two `InvokeWorkflowFile` calls in that test pass empty
-   `in_Page` and `in_Element`.
-4. **Display names lie about paths.** e.g. `"OpenBrowser - Invoke Workflow File
-   (Framework\Navigation\OpenBrowser.xaml)"` while `WorkflowFileName` is
-   `Applications\WebApp\Navigation\OpenBrowser.xaml`; `"CheckSession ...
-   (Framework\CheckSession.xaml)"` invokes `Framework\EnsureSession.xaml`;
-   `"LoginSteps ... (Pages\LoginPage\LoginFlow.xaml)"` invokes `LoginSteps.xaml`.
-5. **`x:Class` does not match the file name** — `ATF_RTP_WEB_Login.xaml` declares
-   `x:Class="ATF_RTP_WEB_IB_Login"`.
-6. **Login cannot actually log in.** `LoginSteps.xaml` invokes the `SetText` stub with an
-   empty argument dictionary, and the SubmitButton target is broken
-   (see `object-repository.md`).
-7. **Templates continue after a config failure** instead of rethrowing (see above).
-
-In your own test cases: rethrow after `HandleException`, or do not catch in `When`/`Then` at
-all; put real Verify activities in `Then`. Propose fixes to the Login test to the user
-instead of editing it.
+Where an existing file breaks one of these, **propose** the fix to the user and leave the
+file alone. See `known-state-2026-10-21.md` for the defects found in the last snapshot, and
+check whether they are still there.

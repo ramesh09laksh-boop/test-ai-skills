@@ -3,28 +3,26 @@
 Only commands actually executed and observed are written below. **Re-run the discovery step
 in your own environment** — versions and the bundled `uipcli` path change.
 
+Baseline numbers are **not** here. Produce your own baseline by running the command on the
+unmodified project before you change anything, and report the delta against that. The
+numbers observed in one past run are in `known-state-2026-10-21.md`, as a snapshot.
+
 ## Discovery
 
 ```powershell
-uip --version                       # 1.202.1
+uip --version                       # 1.202.1 when this was written
 uip rpa-legacy --help               # debug | find-activities | find-package | pack
                                     # type-definition | validate      (NO analyze)
 ```
 
 `uip rpa-legacy` is a wrapper. Workflow Analyzer is **not** exposed through it; use the
-bundled legacy binary:
-
-```powershell
-$cli = "$env:USERPROFILE\.uipath\.cache\rpa-legacy-tool\26.4.0.3\legacy-cli\tools\uipcli.exe"
-& $cli --version                    # uipcli 26.4.0+7e11f79...
-& $cli                              # lists: asset | job | package | run | test
-```
-
-Find it rather than hard-coding the version directory:
+bundled legacy binary. Find it rather than hard-coding the version directory:
 
 ```powershell
 $cli = (Get-ChildItem "$env:USERPROFILE\.uipath\.cache\rpa-legacy-tool" -Recurse `
         -Filter uipcli.exe | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+& $cli --version
+& $cli                              # lists: asset | job | package | run | test
 ```
 
 ## Workflow Analyzer
@@ -36,34 +34,26 @@ $cli = (Get-ChildItem "$env:USERPROFILE\.uipath\.cache\rpa-legacy-tool" -Recurse
       --traceLevel Information
 ```
 
-Verified on the unmodified project: **exit code 0**, `analyzer.json` written as a JSON
-array. `ErrorSeverity` is numeric: `1` Info, `2` Warning, `3` Error.
+Verified: **exit code 0**, `analyzer.json` written as a JSON array. `ErrorSeverity` is
+numeric: `1` Info, `2` Warning, `3` Error.
 
-Baseline on `feature/Initial_Work` with the **default** rule set — 91 findings:
-
-| Severity | Code | Count | Rule |
-|---|---|---:|---|
-| Error | `ST-ANA-009` | 24 | File Activities Stats (a metrics rule, one per file — not a defect) |
-| Warning | `ST-MRD-002` | 35 | Activity Name Defaults |
-| Warning | `ST-USG-020` | 21 | Minimum Log Messages |
-| Warning | `ST-NMG-004` | 4 | Display Name Duplication |
-| Warning | `ST-NMG-002` | 2 | Arguments Naming Convention (`io_Browser` vs an `out_*` pattern) |
-| Warning | `UI-USG-011` | 1 | Non-allowed attribute `idx='2'` — the broken SubmitButton selector |
-| Warning | `ST-SEC-007` | 1 | SecureString argument in `LoginSteps.xaml` |
-
-Compare your run against this baseline and report the **delta** your change introduces.
+Run it **twice**: once on the unmodified project for your baseline, once after your change,
+and report the delta. Note that `ST-ANA-009` (File Activities Stats) is a metrics rule that
+fires once per file — adding a file adds findings without adding defects. Say so rather than
+hiding it.
 
 Useful flags: `--stopOnRuleViolation`, `--treatWarningsAsErrors`, `--ignoredRules a,b`.
 
-### The TAU rule set
+### Rule set
 
-CI sets `RULECONFIG_TYPE: TAU` (`.gitlab-ci.yml`). The CLI takes a rule set through
-`--governanceFilePath <policy.json>` (an Automation Ops policy or one exported from Studio).
+The CLI takes a rule set through `--governanceFilePath <policy.json>` (an Automation Ops
+policy or one exported from Studio). CI sets `RULECONFIG_TYPE: TAU` in `.gitlab-ci.yml`.
 
-**The TAU policy file was not available in this environment**, so every analyzer number
-above is from the *default* rule set. Before quoting analyzer results as CI-equivalent, get
-the TAU policy from Automation Ops or from the `swisscom/uipath-b2b/pipeline/includes`
-repository and pass it with `--governanceFilePath`. Say which rule set you used.
+The TAU policy file was not available in the environment this was written in, so any number
+produced without `--governanceFilePath` is from the **default** rule set and is not
+CI-equivalent. Get the TAU policy from Automation Ops or from the pipeline-includes
+repository before quoting analyzer results as CI-equivalent. **Always say which rule set you
+used.**
 
 ## Validate
 
@@ -71,17 +61,10 @@ repository and pass it with `--governanceFilePath`. Say which rule set you used.
 uip rpa-legacy validate "<project>\project.json" --result-path "<project>\validate.json"
 ```
 
-**Not usable as a pass/fail gate in this environment.** On the unmodified project it exits
-`1` with **81 findings, all `CLI-TR-0001` TypeResolution false positives** across all 32
-XAML files:
-
-- 32 × `Collection ... 'System.Collections.ObjectModel' (System.Private.CoreLib)`
-- 32 × `Dictionary ... 'System.Collections.Generic' (System.Private.CoreLib)`
-- 11 × `SecureString` / `System.Exception` namespace resolution
-- 1 × `Get PHI Vault` — from the unresolvable internal dependency
-
-Treat the 81-finding baseline as the zero point and report only new entries that name a file
-you touched.
+**Not usable as a pass/fail gate** in the environment this was written in: on the unmodified
+project it exits `1` with findings that are all `CLI-TR-0001` TypeResolution false positives,
+across every XAML file. Take your own unmodified-project run as the zero point and report
+only new entries that name a file you touched.
 
 ## Pack
 
@@ -90,26 +73,19 @@ uip rpa-legacy pack "<project>\project.json" --output "<project>\out" `
       --version "<x.y.z>" --output-type Tests
 ```
 
-`--output-type` accepts `Process|Library|Tests|Objects`; this project is `Tests`. Other
-flags: `--auto-version`, `--repository-url/-commit/-branch`, `--release-notes`.
+`--output-type` accepts `Process|Library|Tests|Objects`; match the project's
+`designOptions.outputType`. Other flags: `--auto-version`, `--repository-url/-commit/-branch`,
+`--release-notes`.
 
-**Pack could not be completed in this environment.** It fails during compilation:
-
-```
-Unable to create activity builder for Utilities\GetFrontendCredentials.xaml.
-Reason was 'Cannot create unknown type
-'{clr-namespace:Swisscom_PHI;assembly=Swisscom.PHI}Get_PHI_Vault'.'
-```
-
-Cause: the internal `GlobaleWorkflow [26.8.6.21061]` dependency cannot be restored — the
-configured feeds are only `nuget.org` and `C:\ProgramData\UiPath\Packages`. Add the internal
-Swisscom feed to `%APPDATA%\NuGet\NuGet.Config`, or pack in CI. This is an environment
-limitation, not a project defect — do not "fix" it by removing the dependency.
+Pack needs every dependency restorable. An internal dependency that is not on a configured
+feed fails compilation with `Cannot create unknown type '...'` — that is an environment
+limitation, not a project defect. Add the internal feed to `%APPDATA%\NuGet\NuGet.Config`, or
+pack in CI. **Never "fix" it by removing the dependency.**
 
 ## Run a test set
 
 ```powershell
-& $cli test run "<orchestrator_url>" "SCS-TEST-AUT" `
+& $cli test run "<orchestrator_url>" "<tenant>" `
       -P "<project>\project.json" `
       -s "<test set name>" `
       -o "<folder name>" `
@@ -129,7 +105,8 @@ OR.Execution OR.Assets OR.Users.Read OR.Jobs OR.Monitoring`.
 
 Other flags: `--timeout <seconds>` (default 7200), `--retryCount`, `-i <input json>`.
 
-**Not executed here** — no Orchestrator credentials in this environment.
+Without credentials in the environment this cannot run: report `Not executed`, the reason,
+and the exact command. Never report `Passed` or `Failed` without a run in this session.
 
 ## Credentials
 
@@ -138,11 +115,12 @@ into a file in either repository, never echo them, and never put them in a repor
 
 ## Relationship to CI
 
-`.gitlab-ci.yml` includes `swisscom/uipath-b2b/pipeline/includes` → `/Deploy2Orch.yml` with
-`PROJECT_FILE=$CI_PROJECT_DIR\project.json`, `RULECONFIG_TYPE=TAU`, `UNIT_TESTS=NONE`,
-`ORCHESTRATOR_TENANT=SCS-TEST-AUT`, `PACKAGE_VERSION=~~REPLACE~~`.
+`.gitlab-ci.yml` in the target project includes a shared pipeline (observed:
+`swisscom/uipath-b2b/pipeline/includes` → `/Deploy2Orch.yml`) with `PROJECT_FILE`,
+`RULECONFIG_TYPE`, `UNIT_TESTS`, `ORCHESTRATOR_TENANT` and `PACKAGE_VERSION` variables. Read
+the file on your run — those values move.
 
 **That pipeline is the official deploy path.** Local CLI runs are for fast feedback only;
-never publish a package by hand. The include itself was not readable from this environment,
-so the exact analyzer and pack invocations it uses are unconfirmed — read it and align
-before claiming CI equivalence.
+never publish a package by hand. The include itself was not readable from the environment
+this was written in, so the exact analyzer and pack invocations it uses are unconfirmed —
+read it and align before claiming CI equivalence.

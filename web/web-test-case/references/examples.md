@@ -132,11 +132,14 @@ Given die Konfiguration für Mandant/Umgebung geladen ist
 
 ## Files both samples would touch
 
-Nothing below is written before the gap gate clears and the element captures exist.
+**Derived from the 2026-10-21 snapshot** (`known-state-2026-10-21.md`), so the "new" vs
+"implement stub" column may already be wrong. Re-derive this list from the project you are
+in: whichever of these already exist are reused, not created. Nothing below is written before
+the gap gate clears and the element captures exist.
 
 | File | Action |
 |---|---|
-| `Testcases\ATF_RTP_WEB_BANKING_<Name>.xaml` | new |
+| `Testcases\<TestCaseName>.xaml` | new |
 | `project.json` → `fileInfoCollection` | one new entry |
 | `Applications\WebApp\Pages\PaymentPage\Click_PaymentPage_Element.xaml` | new |
 | `Applications\WebApp\Pages\PaymentPage\SetText_PaymentPage_Element.xaml` | new |
@@ -156,11 +159,13 @@ seen.
 
 ## Open questions these two raise
 
-1. `ExecutionTemplate` (ordering dependency on `ATF_RTP_WEB_Login`) or self-login in `Given`?
+1. `ExecutionTemplate` (ordering dependency on the login test) or self-login in `Given`?
    And should the templates rethrow config errors instead of continuing with a null config?
-2. Fix the Login test first? It cannot currently log in — see `object-repository.md`.
+2. Fix the Login test first? As of the last snapshot it could not log in — re-check.
 3. Who captures the payment-page elements in Studio, and when?
 4. The missing data in both tables above; and is `45000 Norwegen` correct?
-5. CSV↔xlsx pairing: by convention or an explicit mapping file?
+5. Should the `ATF_RTP_WEB_BANKING_` prefix stay in the test case name, given the CSVs drop
+   it? (It does: the test case name is the xlsx name verbatim.)
 6. Data variations or reading the CSV in `Given`?
 7. Where does the transaction-signing token come from — which PHI Vault entry?
+8. `InitConfig` reads a UNC share, not `Config\config.json` — switch it?
