@@ -96,6 +96,11 @@ Taken from real installs into scratch folders, one per agent, CLI 1.7.4 on Windo
 Copilot and Codex are *universal* agents: they read the shared `.agents/skills/` location
 directly, so installing for both writes one copy. Claude Code has its own directory.
 
+A consequence worth knowing: anything in `.agents/skills/` is visible to **every** universal
+agent, so after installing for Codex alone, `npx skills list` reports the skill against
+`Codex, Cursor, GitHub Copilot, OpenCode`. That is the shared location being read, not four
+separate installs.
+
 With a **single** agent the files are written straight into that agent's directory. With
 **several** agents in one command, the CLI stages the skill in `.agents/skills/<skill>/` and
 links the per-agent directories to it — on Windows, `.claude/skills/<skill>` becomes a
