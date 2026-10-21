@@ -63,6 +63,13 @@ The project keeps changing: new pages, actions, utilities, templates and config 
 
 ## Workflow
 
+Steps 1–5 are read-only. **Check-only run:** when the user asks to check readiness without
+changing anything, do steps 1–5 and stop, then report the project inspection (including the
+config-path status), the pairing table, the gap gate per test case, the capture list, and any
+broken references or stubs on the path these tests need. Write nothing.
+
+Ready-made prompts for the common situations are in `PROMPTS.md`.
+
 ### 1. Get the input folders
 
 Two arguments: the **spec folder** (the `.xlsx` manual steps) and the **data folder** (the

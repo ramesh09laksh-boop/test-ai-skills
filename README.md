@@ -159,6 +159,11 @@ Ask for it in the Studio project root, naming both folders:
 
 > Implement the test cases from `D:\Specs\WebBanking` with data from `D:\Testdaten\WebBanking`.
 
+Copy-paste prompts for the usual situations — readiness check, a whole folder, one test case,
+resuming after the gap gate, validating before a merge request — are in
+[`web/web-test-case/PROMPTS.md`](web/web-test-case/PROMPTS.md). It also says which prompts map
+onto a defined workflow and which ask the agent to improvise.
+
 There is **no default folder name yet** — the skill asks for both folders if you do not name
 them, and it never searches the disk for them. If the team agrees on standard locations, add
 them here as the default; the arguments still override.
